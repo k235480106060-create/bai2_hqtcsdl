@@ -85,9 +85,8 @@ CREATE TABLE Phim (
 GO
 ```
 
-<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c8721077-a960-4151-b271-8b80f5cfe2c8" />
-Hình 2: tạo bảng Phim thành công
-</p>
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/e5c5ad20-fa8d-48e7-82c9-7601599b7c50" />
+<i>Hình 2: Tạo bảng Phim</i></p>
 
 3 Tạo bảng Khách Hàng
 
@@ -421,9 +420,11 @@ Các bước thực hiện:
 
     - Cách dùng: EXEC sp_rename 'OldName', 'NewName';
       
-2. Thực hành xây dựng Stored Procedure SP Thực hiện INSERT có kiểm tra điều kiện logic
+2. Thực hành xây dựng
+   
+**Stored Procedure SP Thực hiện INSERT có kiểm tra điều kiện logic**
 
-Yêu cầu: Thêm một bộ phim mới. Điều kiện: Tên phim không được trùng và thời lượng phải lớn hơn 60 phút.
+Yêu cầu: Xây dựng sp_InsertMovie để thêm một bộ phim mới. Điều kiện: Tên phim không được trùng và thời lượng phải lớn hơn 60 phút.
 
 ```
 CREATE PROCEDURE sp_InsertMovie
@@ -463,3 +464,81 @@ Luồng xử lý:
 
 <p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/58ddf023-d232-460e-89fe-792801f1c31f" />
 <i>Hình 9: Thực hiện lệnh thành công và thêm 1 bộ phim mới</i></p>
+
+**Store Procedure sử dụng tham số OUTPUT**
+
+Yêu cầu: xây dựng sp_GetCustomerTotalSpent để phục vụ bộ phận kế toán và CSKH. 
+Hệ thống cần tính tổng số tiền mà một khách hàng cụ thể đã chi trả cho tất cả các vé họ đã mua từ trước đến nay. Kết quả phải được trả về dưới dạng một biến để có thể tái sử dụng cho các mục đích khác (như xét nâng hạng thành viên).
+
+```
+CREATE PROCEDURE sp_GetCustomerTotalSpent
+    @customerId INT,
+    @totalSpent DECIMAL(10, 2) OUTPUT
+AS
+BEGIN
+    SELECT @totalSpent = SUM(GiaThanhToan)
+    FROM VeXemPhim
+    WHERE CustomerID = @customerId;
+
+    IF @totalSpent IS NULL 
+        SET @totalSpent = 0;
+END;
+GO
+
+DECLARE @result DECIMAL(10, 2);
+EXEC sp_GetCustomerTotalSpent 1, @result OUTPUT;
+SELECT @result AS TongTienDaChi;
+```
+Luồng xử lý:
+
+- Khởi tạo: Nhận Mã khách hàng và chuẩn bị một biến OUTPUT để chứa kết quả trả về.
+
+- Tính toán: Sử dụng hàm gộp SUM trên cột GiaThanhToan trong bảng VeXemPhim lọc theo mã khách hàng.
+
+- Xử lý rỗng: Nếu khách hàng chưa mua vé bao giờ (NULL), hàm sẽ gán giá trị mặc định là 0.
+
+- Trả kết quả: Đẩy giá trị vừa tính được ra biến @totalSpent để câu lệnh gọi thủ tục có thể sử dụng tiếp.
+
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5622bd35-3a4e-47ea-8044-4b3f22b695a3" />
+<i>Hình 10: Kết quả của 1 khách hàng đã chi từ trước đến nay</i></p>
+
+**Store Procedure trả về tập kết quả**
+
+Yêu cầu: Xây dựng thủ tục sp_GetCustomerHistory để hỗ trợ nhân viên tại quầy tra cứu nhanh lịch sử xem phim của khách. 
+Báo cáo trả về phải hiển thị rõ ràng tên khách hàng và tên phim (thay vì chỉ hiện mã ID), kèm theo suất chiếu và giá vé, sắp xếp theo thời gian gần nhất.
+```
+CREATE PROCEDURE sp_GetCustomerHistory
+    @customerId INT
+AS
+BEGIN
+    SELECT 
+        v.TicketID,
+        k.HoTen,
+        p.TenPhim,
+        p.TheLoai,
+        v.SuatChieu,
+        v.GiaThanhToan
+    FROM VeXemPhim v
+    JOIN KhachHang k ON v.CustomerID = k.CustomerID
+    JOIN Phim p ON v.MovieID = p.MovieID
+    WHERE k.CustomerID = @customerId
+    ORDER BY v.SuatChieu DESC;
+END;
+GO
+
+EXEC sp_GetCustomerHistory 1;
+
+```
+Luồng xử lý:
+
+- Kiểm tra tồn tại: Trước khi khởi tạo, hệ thống kiểm tra trong sys.objects xem thủ tục đã tồn tại chưa. Nếu có, thực hiện DROP để làm mới bộ nhớ.
+
+- Định vị Database: Đảm bảo phiên làm việc đang ở đúng Database rạp phim để tránh lỗi "Invalid object name".
+
+- Kết hợp dữ liệu (JOIN): Thực hiện INNER JOIN giữa bảng VeXemPhim, KhachHang và Phim.
+
+- Lọc & Sắp xếp: Trích xuất các bản ghi theo @customerId và sắp xếp theo suất chiếu mới nhất.
+
+- Trả kết quả: Xuất ra tập bản ghi (Result Set) cho người dùng.
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/f17ff1ee-1752-430b-9287-1ee928533b04" />
+<i>Hình 12: Tra cứu nhanh tên khách hàng và tên phim </i></p>
