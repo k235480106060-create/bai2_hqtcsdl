@@ -52,9 +52,8 @@ Hệ thống không chỉ là một kho lưu trữ thông tin đơn thuần mà 
 
 1Tạo database
 
-<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a55abe2a-95bf-4006-b4b9-8aa4e07c3055" />
-Hình 1: Tạo database QuanLyRapPhim_K235480106060 thành công
-</p>
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/2a333009-c396-42f4-97d8-b3ba53685563" />
+<i>Hình 1: Tạo database QuanLyRapPhim_K235480106060 thành công</i></p>
 
 2 Tạo bảng Phim
 
@@ -89,6 +88,7 @@ GO
 <p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c8721077-a960-4151-b271-8b80f5cfe2c8" />
 Hình 2: tạo bảng Phim thành công
 </p>
+
 3 Tạo bảng Khách Hàng
 
 - Chức năng: Lưu trữ thông tin cá nhân, điểm tích lũy và hạng thành viên. Dữ liệu này dùng để thực hiện các chương trình ưu đãi và gửi thông báo.
