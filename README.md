@@ -541,4 +541,217 @@ Luồng xử lý:
 
 - Trả kết quả: Xuất ra tập bản ghi (Result Set) cho người dùng.
 <p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/f17ff1ee-1752-430b-9287-1ee928533b04" />
-<i>Hình 12: Tra cứu nhanh tên khách hàng và tên phim </i></p>
+<i>Hình 11: Tra cứu nhanh tên khách hàng và tên phim </i></p>
+
+# Phần 4: Trigger và Xử lý logic nghiệp vụ
+
+**1**. Viết Trigger tự động cập nhật dữ liệu
+
+Yêu cầu: Mỗi khi khách hàng mua vé mới (thêm bản ghi vào bảng VeXemPhim), hệ thống phải tự động cộng 10 điểm vào bảng KhachHang. Sau đó, hệ thống tự động kiểm tra tổng điểm để nâng hạng thành viên (VIP, Member) mà không cần nhân viên can thiệp thủ công.
+
+```
+CREATE TRIGGER trg_AfterInsertTicket
+ON VeXemPhim
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @customerId INT;
+    SELECT @customerId = CustomerID FROM inserted;
+
+    UPDATE KhachHang
+    SET DiemTichLuy = DiemTichLuy + 10
+    WHERE CustomerID = @customerId;
+
+    UPDATE KhachHang
+    SET HangThanhVien = CASE 
+        WHEN DiemTichLuy >= 500 THEN 'VIP'
+        WHEN DiemTichLuy >= 100 THEN 'Member'
+        ELSE 'Standard'
+    END
+    WHERE CustomerID = @customerId;
+END;
+GO
+```
+Luồng xử lý:
+
+- Sự kiện: Kích hoạt ngay sau khi một bản ghi mới được INSERT vào bảng VeXemPhim.
+
+- Trích xuất: Lấy CustomerID từ bảng ảo inserted (bảng chứa dữ liệu vừa được thêm).
+
+- Cập nhật 1: Tăng giá trị cột DiemTichLuy thêm 10 đơn vị cho khách hàng đó.
+
+- Cập nhật 2: Dùng logic CASE WHEN để quét lại điểm và cập nhật HangThanhVien tương ứng.
+
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/65a6ef42-865a-4605-a2e7-8afbe385393b" />
+<i>Hình 12: Thực thi lệnh thành công </i></p>
+
+**2**. Thử nghiệm Trigger vòng lặp (Recusion)
+
+Bước 1: Tạo Trigger trên Bảng A (Phim) cập nhật sang Bảng B (VeXemPhim)
+
+```
+CREATE TRIGGER trg_A_to_B
+ON Phim
+AFTER UPDATE
+AS
+BEGIN
+    UPDATE VeXemPhim SET GiaThanhToan = GiaThanhToan WHERE MovieID IN (SELECT MovieID FROM inserted);
+END;
+GO
+```
+
+Bước 2: Tạo Trigger trên Bảng B (VeXemPhim) cập nhật ngược lại Bảng A (Phim)
+```
+CREATE TRIGGER trg_B_to_A
+ON VeXemPhim
+AFTER UPDATE
+AS
+BEGIN
+    UPDATE Phim SET GiaVeCoBan = GiaVeCoBan WHERE MovieID IN (SELECT MovieID FROM inserted);
+END;
+GO
+```
+
+Bước 3: Thử kích hoạt lỗi
+```
+UPDATE Phim SET GiaVeCoBan = 100000 WHERE MovieID = 1;
+```
+
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/7ea6408d-656a-4484-991b-2d366c85c7de" />
+<i>Hình 13: Kết quả sau khi kích hoạt</i></p>
+
+Hệ thống sẽ báo lỗi đại loại như: "Maximum stored procedure, function, trigger, or view nesting level exceeded (limit 32)."
+
+Giải thích:
+
+- Khi cập nhật bảng Phim, trg_A_to_B chạy và cập nhật bảng VeXemPhim.
+
+- Ngay lập tức, việc cập nhật VeXemPhim lại kích hoạt trg_B_to_A, khiến nó quay lại cập nhật bảng Phim.
+
+- Quá trình này tạo thành một vòng lặp vô tận (Infinite Loop). SQL Server có cơ chế bảo vệ, chỉ cho phép lặp tối đa 32 lần rồi sẽ tự ngắt và báo lỗi để tránh treo hệ thống.
+
+Nhận xét cuối cùng:
+- Tình trạng này gọi là Recursive Trigger (Trigger đệ quy). Trong thiết kế cơ sở dữ liệu thực tế, cần tuyệt đối tránh việc hai trigger cập nhật qua lại lẫn nhau trực tiếp.
+- Điều này không chỉ gây lỗi hệ thống mà còn làm giảm hiệu năng trầm trọng. Nếu cần cập nhật đồng thời, nên dùng Stored Procedure để kiểm soát luồng dữ liệu thay vì dùng Trigger chồng chéo.
+
+# Phần 5: Cursor và Duyệt dữ liệu
+
+**1**. Sử dụng Cursor để xử lý từng bản ghi
+
+Yêu cầu: Duyệt qua danh sách khách hàng có sinh nhật trong tháng hiện tại. Với mỗi khách hàng, hệ thống sẽ kiểm tra hạng thành viên và in ra một thông điệp tặng Voucher cá nhân hóa (VIP tặng 200k, Member tặng 100k, Standard tặng 50k).
+
+```
+DECLARE @tenKH NVARCHAR(100);
+DECLARE @hangTV NVARCHAR(50);
+DECLARE @thongBao NVARCHAR(MAX);
+
+DECLARE cursor_TangVoucher CURSOR FOR
+SELECT HoTen, HangThanhVien 
+FROM KhachHang
+WHERE MONTH(NgaySinh) = MONTH(GETDATE());
+
+OPEN cursor_TangVoucher;
+
+FETCH NEXT FROM cursor_TangVoucher INTO @tenKH, @hangTV;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @thongBao = CASE 
+        WHEN @hangTV = 'VIP' THEN N'Tang Voucher 200k'
+        WHEN @hangTV = 'Member' THEN N'Tang Voucher 100k'
+        ELSE N'Tang Voucher 50k'
+    END;
+
+    PRINT N'Chuc mung sinh nhat: ' + @tenKH + N'. ' + @thongBao;
+
+    FETCH NEXT FROM cursor_TangVoucher INTO @tenKH, @hangTV;
+END;
+
+CLOSE cursor_TangVoucher;
+DEALLOCATE cursor_TangVoucher;
+```
+Luồng xử lý:
+
+- Khởi tạo: Khai báo Cursor chứa tập dữ liệu khách hàng sinh nhật trong tháng.
+
+- Duyệt (Loop): Lấy từng dòng dữ liệu gán vào biến @tenKH và @hangTV.
+
+- Xử lý: Sử dụng logic CASE WHEN để quyết định loại Voucher cho từng người cụ thể.
+
+- Kết xuất: In thông báo ra cửa sổ Messages.
+  
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/c8256900-9c06-463d-b771-43cda8ce69f8" />
+<i>Hình 14: Đã lọc được ds khách hàng sinh nhật trong tháng và tặng voucher </i></p>
+
+**2**. Giải quyết bài toán không dùng Cursor (Set-based)
+
+Trong SQL, hầu hết các bài toán duyệt dữ liệu để hiển thị hoặc cập nhật đều có thể dùng câu lệnh SELECT hoặc UPDATE trực tiếp.
+```
+SELECT 
+    HoTen,
+    CASE 
+        WHEN HangThanhVien = 'VIP' THEN N'Tang Voucher 200k'
+        WHEN HangThanhVien = 'Member' THEN N'Tang Voucher 100k'
+        ELSE N'Tang Voucher 50k'
+    END AS ThongBaoVoucher
+FROM KhachHang
+WHERE MONTH(NgaySinh) = MONTH(GETDATE());
+```
+
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/e8df8a2a-3cfa-487c-aaf2-9c6923c02445" />
+<i>Hình 15: Kết quả sau khi thực thi lệnh</i></p>
+
+
+- Tốc độ: Cách không dùng Cursor (Set-based) nhanh hơn gấp nhiều lần so với dùng Cursor.
+
+- Lý do: Cursor phải thực hiện các thao tác mở, đóng, lấy dữ liệu và cấp phát bộ nhớ cho từng hàng một. Trong khi đó, câu lệnh SELECT xử lý cả tập dữ liệu cùng lúc dưới dạng các khối (blocks).
+
+**3**. Bài toán chỉ Cursor mới giải quyết được (hoặc SQL rất khó giải quyết)
+
+Yêu cầu nghiệp vụ: Rạp phim muốn gửi một email thông báo đến từng khách hàng VIP có điểm tích lũy trên 1000 để tặng mã quà tặng độc nhất. Vì mỗi khách hàng nhận một mã khác nhau và việc gửi mail phải thông qua một thủ tục hệ thống (sp_send_dbmail), câu lệnh UPDATE hay SELECT thông thường không thể thực hiện hành động lặp lại này cho từng cá nhân.
+
+```
+DECLARE @emailKH VARCHAR(100);
+DECLARE @tenKH NVARCHAR(100);
+DECLARE @maVoucher VARCHAR(20);
+DECLARE @noiDungEmail NVARCHAR(MAX);
+
+DECLARE cursor_GuiEmailVoucher CURSOR FOR
+SELECT Email, HoTen FROM KhachHang WHERE DiemTichLuy > 1000;
+
+OPEN cursor_GuiEmailVoucher;
+
+FETCH NEXT FROM cursor_GuiEmailVoucher INTO @emailKH, @tenKH;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @maVoucher = 'VIP' + CAST(CAST(RAND()*10000 AS INT) AS VARCHAR(10));
+    
+    SET @noiDungEmail = N'Chao ' + @tenKH + N' (' + CAST(@emailKH AS NVARCHAR(100)) + N'), ma Voucher cua ban la: ' + @maVoucher;
+
+    PRINT @noiDungEmail;
+
+    FETCH NEXT FROM cursor_GuiEmailVoucher INTO @emailKH, @tenKH;
+END;
+
+CLOSE cursor_GuiEmailVoucher;
+DEALLOCATE cursor_GuiEmailVoucher;
+```
+
+<p><img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d52a96f2-ec65-44ff-af1d-8f1ccc85a58b" />
+<i>Hình 16: Thực thi lệnh thành công hệ thống đã gửi email cho khách hàng</i></p>
+
+Luồng xử lý:
+- Khai báo biến tạm: Khởi tạo các biến chứa dữ liệu cá nhân (@tenKH, @emailKH) và các biến chứa nội dung thông điệp sau khi đã được nối chuỗi (@noiDungEmail).
+
+- Mở con trỏ (Cursor): Truy vấn danh sách khách hàng có DiemTichLuy > 1000.
+
+- Vòng lặp tuần tự (Row-by-row):
+
+    - Sinh mã ngẫu nhiên: Sử dụng hàm RAND() để tạo mã Voucher duy nhất cho mỗi vòng lặp.
+
+    - Nối chuỗi nội dung: Đây là bước quan trọng để tránh lỗi cú pháp. Nội dung Email được chuẩn bị sẵn trong biến trước khi gọi lệnh gửi.
+
+    - Thực thi lệnh hệ thống: Gọi thủ tục sp_send_dbmail để gửi Email thực tế dựa trên thông tin của hàng hiện tại.
+
+- Giải phóng tài nguyên: Đóng và giải phóng vùng nhớ cho Cursor để tối ưu hệ thống.
