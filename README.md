@@ -630,7 +630,7 @@ Giải thích:
 
 - Quá trình này tạo thành một vòng lặp vô tận (Infinite Loop). SQL Server có cơ chế bảo vệ, chỉ cho phép lặp tối đa 32 lần rồi sẽ tự ngắt và báo lỗi để tránh treo hệ thống.
 
-Nhận xét cuối cùng:
+Nhận xét:
 - Tình trạng này gọi là Recursive Trigger (Trigger đệ quy). Trong thiết kế cơ sở dữ liệu thực tế, cần tuyệt đối tránh việc hai trigger cập nhật qua lại lẫn nhau trực tiếp.
 - Điều này không chỉ gây lỗi hệ thống mà còn làm giảm hiệu năng trầm trọng. Nếu cần cập nhật đồng thời, nên dùng Stored Procedure để kiểm soát luồng dữ liệu thay vì dùng Trigger chồng chéo.
 
